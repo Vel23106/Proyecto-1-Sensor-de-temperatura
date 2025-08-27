@@ -26,6 +26,8 @@ int adcRAW = 0;
 float alpha = 0.05;         // Factor de suavizado (0.05–0.3 recomendado)
 float adcFiltered = 0.0;   // Valor filtrado inicial
 bool primeraLectura = true;
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Adafruit •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+AdafruitIO_Feed *tempCanal = io.feed("Temperatura");
 
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Prototipos de funciones •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 void initBotonc(void);
@@ -63,6 +65,7 @@ void setup() {
 
 // Loop principal
 void loop() {
+  io.run(); 
   getADCEMA();  
   // Si se presiona el botón, enviamos el valor filtrado
   if (btncPressed) {
@@ -73,7 +76,7 @@ void loop() {
     Serial.print(" -> Temp: ");
     Serial.print(tempC);
     Serial.println(" °C");
-
+    tempCanal->save(tempC);
   }
 
   delay(200); 
