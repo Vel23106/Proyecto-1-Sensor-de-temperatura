@@ -1,0 +1,94 @@
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Librerias •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+#include <Arduino.h>
+#include <stdint.h>
+#include <driver/ledc.h>
+#include "config.h"
+
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Pines •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+#define temp 32    // Pin ADC LM35
+#define BTNc 15       // Botón
+#define delayBounce 250
+
+#define display1 13
+#define display2 12
+#define display3 14
+
+
+
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Variables globales •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+volatile bool btncPressed = false;
+volatile uint32_t lastISRBtnc = 0;
+
+float tempC = 0.0;
+int adcRAW = 0;
+
+// Variables para EMA
+float alpha = 0.05;         // Factor de suavizado (0.05–0.3 recomendado)
+float adcFiltered = 0.0;   // Valor filtrado inicial
+bool primeraLectura = true;
+
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Prototipos de funciones •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+void initBotonc(void);
+void IRAM_ATTR BTNc_ISR(void);
+void getADCEMA(void);
+
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• ISR •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+void IRAM_ATTR BTNc_ISR(void) {
+  uint32_t tiempoActual = millis();
+  if (tiempoActual - lastISRBtnc > delayBounce) {
+    btncPressed = true;
+    lastISRBtnc = tiempoActual;
+  }
+}
+
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Setup •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+void setup() {
+  Serial.begin(115200);
+  initBotonc();
+
+
+
+  // Conexión a Adafruit IO
+  Serial.print("Conectando a Adafruit IO...");
+  io.connect();
+
+  while(io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+
+  Serial.println(" ¡Conectado!");
+  Serial.println(io.statusText());
+}
+
+// Loop principal
+void loop() {
+  getADCEMA();  
+  // Si se presiona el botón, enviamos el valor filtrado
+  if (btncPressed) {
+    btncPressed = false; // limpiar bandera
+    
+    Serial.print("ADC raw: ");
+    Serial.print(adcRAW);
+    Serial.print(" -> Temp: ");
+    Serial.print(tempC);
+    Serial.println(" °C");
+
+  }
+
+  delay(200); 
+}
+
+// Inicializar botón con interrupción
+void initBotonc(void) {
+  pinMode(BTNc, INPUT_PULLUP);
+  attachInterrupt(BTNc, BTNc_ISR, FALLING);
+}
+
+
+void getADCEMA(void) {
+  adcRAW = analogReadMilliVolts(temp);
+  adcFiltered = alpha * adcRAW + (1 - alpha) * adcFiltered;
+  tempC=(adcFiltered/10.0)-6;
+  tempC = round(tempC * 10.0) / 10.0;
+}
