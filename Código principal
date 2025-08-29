@@ -9,6 +9,10 @@
 #define BTNc 15       // Botón
 #define delayBounce 250
 
+#define ledverde 4
+#define ledamar 5
+#define ledrojo 18
+
 #define display1 13
 #define display2 12
 #define display3 14
@@ -33,6 +37,7 @@ AdafruitIO_Feed *tempCanal = io.feed("Temperatura");
 void initBotonc(void);
 void IRAM_ATTR BTNc_ISR(void);
 void getADCEMA(void);
+void encenderleds(bool vala, bool valb, bool valc);
 
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• ISR •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 void IRAM_ATTR BTNc_ISR(void) {
@@ -47,8 +52,14 @@ void IRAM_ATTR BTNc_ISR(void) {
 void setup() {
   Serial.begin(115200);
   initBotonc();
+  
+  pinMode(ledverde, OUTPUT);
+  pinMode(ledamar, OUTPUT);
+  pinMode(ledrojo, OUTPUT);
 
-
+  digitalWrite(ledamar, LOW);
+  digitalWrite(ledverde, LOW);
+  digitalWrite(ledrojo, LOW);
 
   // Conexión a Adafruit IO
   Serial.print("Conectando a Adafruit IO...");
@@ -77,6 +88,13 @@ void loop() {
     Serial.print(tempC);
     Serial.println(" °C");
     tempCanal->save(tempC);
+      if (tempC<22.0){
+      encenderleds(HIGH,LOW,LOW);
+    } else if(tempC>=22.0 && tempC<=25.0){
+      encenderleds(LOW, HIGH, LOW);
+    } else if(tempC>25.0){
+      encenderleds(LOW, LOW, HIGH);
+    }
   }
 
   delay(200); 
@@ -88,6 +106,11 @@ void initBotonc(void) {
   attachInterrupt(BTNc, BTNc_ISR, FALLING);
 }
 
+void encenderleds(bool vala, bool valb, bool valc) {
+  digitalWrite(ledverde, vala);
+  digitalWrite(ledamar, valb);
+  digitalWrite(ledrojo, valc);
+}
 
 void getADCEMA(void) {
   adcRAW = analogReadMilliVolts(temp);
