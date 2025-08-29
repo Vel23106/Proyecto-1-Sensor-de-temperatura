@@ -8,6 +8,12 @@
 #define temp 32    // Pin ADC LM35
 #define BTNc 15       // Botón
 #define delayBounce 250
+#define servo 2
+#define pwmChannel1 0 
+
+#define freqPWM 100
+#define freqServo 50 
+#define resPWM 16
 
 #define ledverde 4
 #define ledamar 5
@@ -38,6 +44,7 @@ void initBotonc(void);
 void IRAM_ATTR BTNc_ISR(void);
 void getADCEMA(void);
 void encenderleds(bool vala, bool valb, bool valc);
+void initPWM(void);
 
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• ISR •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 void IRAM_ATTR BTNc_ISR(void) {
@@ -51,6 +58,7 @@ void IRAM_ATTR BTNc_ISR(void) {
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Setup •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 void setup() {
   Serial.begin(115200);
+  initPWM();
   initBotonc();
   
   pinMode(ledverde, OUTPUT);
@@ -87,13 +95,17 @@ void loop() {
     Serial.print(" -> Temp: ");
     Serial.print(tempC);
     Serial.println(" °C");
+
     tempCanal->save(tempC);
       if (tempC<22.0){
       encenderleds(HIGH,LOW,LOW);
+      ledcWrite(pwmChannel1, 3277);
     } else if(tempC>=22.0 && tempC<=25.0){
       encenderleds(LOW, HIGH, LOW);
+      ledcWrite(pwmChannel1, 4915);
     } else if(tempC>25.0){
       encenderleds(LOW, LOW, HIGH);
+      ledcWrite(pwmChannel1, 6553);
     }
   }
 
@@ -117,4 +129,9 @@ void getADCEMA(void) {
   adcFiltered = alpha * adcRAW + (1 - alpha) * adcFiltered;
   tempC=(adcFiltered/10.0)-6;
   tempC = round(tempC * 10.0) / 10.0;
+}
+void initPWM(void) {
+  ledcSetup(pwmChannel1, freqPWM, resPWM);
+  ledcAttachPin(servo, pwmChannel1);
+  ledcWrite(pwmChannel1, 0);
 }
