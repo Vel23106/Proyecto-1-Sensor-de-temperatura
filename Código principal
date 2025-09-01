@@ -1,13 +1,19 @@
+// Universidad del Valle de Guatemala
+// BE3029 - Electronica Digital 2
+// Amy Velásquez
+// proyecto 1
+// 11/08/2025
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Librerias •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 #include <Arduino.h>
 #include <stdint.h>
 #include <driver/ledc.h>
 #include "config.h"
+#include "display7.h"
 
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Pines •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 #define temp 32    // Pin ADC LM35
 #define BTNc 15       // Botón
-#define delayBounce 250
+#define delayBounce 250 //tiempo de debounce para el botón
 #define servo 2
 #define pwmChannel1 0 
 
@@ -23,8 +29,6 @@
 #define display2 12
 #define display3 14
 
-
-
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Variables globales •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 volatile bool btncPressed = false;
 volatile uint32_t lastISRBtnc = 0;
@@ -33,11 +37,19 @@ float tempC = 0.0;
 int adcRAW = 0;
 
 // Variables para EMA
-float alpha = 0.05;         // Factor de suavizado (0.05–0.3 recomendado)
+float alpha = 0.05;         // Factor de suavizado
 float adcFiltered = 0.0;   // Valor filtrado inicial
 bool primeraLectura = true;
+
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Variables para cambio de display •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+hw_timer_t * timerDisplay = NULL;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+
+volatile int digitoActivo = 0;   // display actual
+volatile int numero[3] = {0,0,0}; // dígitos de decenas, unidades y decimales
+
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Adafruit •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
-AdafruitIO_Feed *tempCanal = io.feed("Temperatura");
+AdafruitIO_Feed *tempCanal = io.feed("Temperatura"); //Se conecta al canal de temperatura en Adafruit
 
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Prototipos de funciones •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 void initBotonc(void);
@@ -45,8 +57,12 @@ void IRAM_ATTR BTNc_ISR(void);
 void getADCEMA(void);
 void encenderleds(bool vala, bool valb, bool valc);
 void initPWM(void);
+void Numero(void); //funcion para desplegar el número en los displays
+void initTimerDisplay(void);
+void IRAM_ATTR onTimer();
 
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• ISR •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+//ISR para el botón
 void IRAM_ATTR BTNc_ISR(void) {
   uint32_t tiempoActual = millis();
   if (tiempoActual - lastISRBtnc > delayBounce) {
@@ -55,19 +71,64 @@ void IRAM_ATTR BTNc_ISR(void) {
   }
 }
 
+//ISR para el timer de los displays
+void IRAM_ATTR onTimer() {
+  portENTER_CRITICAL_ISR(&timerMux);
+
+  digitalWrite(display1, LOW);
+  digitalWrite(display2, LOW);
+  digitalWrite(display3, LOW);
+
+  // Seleccionar display y mostrar el dígito correspondiente
+  switch (digitoActivo) {
+    case 0:
+      digitalWrite(display1, HIGH);
+      desplegarNumero(numero[0]);
+      desplegarPunto(0);
+      break;
+    case 1:
+      digitalWrite(display2, HIGH);
+      desplegarNumero(numero[1]);
+      desplegarPunto(1); 
+      break;
+    case 2:
+      digitalWrite(display3, HIGH);
+      desplegarNumero(numero[2]);
+      desplegarPunto(0);
+      break;
+  }
+
+  // sumar cada 2ms para cambiar de dígito y mostrarlos todo
+  digitoActivo++;
+  if (digitoActivo > 2) digitoActivo = 0;
+
+  portEXIT_CRITICAL_ISR(&timerMux);
+}
+
 /*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Setup •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 void setup() {
   Serial.begin(115200);
-  initPWM();
-  initBotonc();
+  initPWM(); //inicia confoguracion para onda PMW para el servomotor
+  initBotonc(); //inicia la configuracion del botón para antirrebote
+  configDisplay7();  // inicializa segmentos
   
   pinMode(ledverde, OUTPUT);
   pinMode(ledamar, OUTPUT);
   pinMode(ledrojo, OUTPUT);
 
+  pinMode(display1, OUTPUT);
+  pinMode(display2, OUTPUT);
+  pinMode(display3, OUTPUT);
+
   digitalWrite(ledamar, LOW);
   digitalWrite(ledverde, LOW);
   digitalWrite(ledrojo, LOW);
+
+  digitalWrite(display1, LOW);
+  digitalWrite(display2, LOW);
+  digitalWrite(display3, LOW);
+
+  initTimerDisplay(); // iniciar timer para la actualizacion y cambio de display
 
   // Conexión a Adafruit IO
   Serial.print("Conectando a Adafruit IO...");
@@ -82,56 +143,84 @@ void setup() {
   Serial.println(io.statusText());
 }
 
-// Loop principal
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Loop •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
 void loop() {
   io.run(); 
   getADCEMA();  
+
   // Si se presiona el botón, enviamos el valor filtrado
   if (btncPressed) {
     btncPressed = false; // limpiar bandera
-    
+
+  //Imprimir valores adquiridos y procesados del sensor LM35
     Serial.print("ADC raw: ");
     Serial.print(adcRAW);
     Serial.print(" -> Temp: ");
     Serial.print(tempC);
     Serial.println(" °C");
 
+  //Enviar los valores a Adafruit
     tempCanal->save(tempC);
+
+  //Realizar análisis de la temperatura para encender LEDS
       if (tempC<22.0){
       encenderleds(HIGH,LOW,LOW);
-      ledcWrite(pwmChannel1, 3277);
     } else if(tempC>=22.0 && tempC<=25.0){
       encenderleds(LOW, HIGH, LOW);
-      ledcWrite(pwmChannel1, 4915);
     } else if(tempC>25.0){
       encenderleds(LOW, LOW, HIGH);
-      ledcWrite(pwmChannel1, 6553);
     }
+    //mapear los valores de la temperatura segun los del servo para movimiento como reloj
+    float posicion= map(tempC, 15, 30, 8191, 1638);
+    posicion = constrain(posicion, 1638, 8191);
+    ledcWrite(pwmChannel1, posicion);
+    // Actualizar número en displays
+    Numero();
   }
-
-  delay(200); 
 }
 
-// Inicializar botón con interrupción
+/*•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• Definición de funciones •︶°︶•︶°︶•︶°︶•︶°︶•︶°︶•︶°︶• */
+//Función de antirrebote como interrupcion
 void initBotonc(void) {
   pinMode(BTNc, INPUT_PULLUP);
   attachInterrupt(BTNc, BTNc_ISR, FALLING);
 }
 
-void encenderleds(bool vala, bool valb, bool valc) {
-  digitalWrite(ledverde, vala);
-  digitalWrite(ledamar, valb);
-  digitalWrite(ledrojo, valc);
-}
-
+//Fución para filtrar la señal ADC
 void getADCEMA(void) {
   adcRAW = analogReadMilliVolts(temp);
   adcFiltered = alpha * adcRAW + (1 - alpha) * adcFiltered;
   tempC=(adcFiltered/10.0)-6;
   tempC = round(tempC * 10.0) / 10.0;
 }
+
+//Función para encender y apagar LED
+void encenderleds(bool vala, bool valb, bool valc) {
+  digitalWrite(ledverde, vala);
+  digitalWrite(ledamar, valb);
+  digitalWrite(ledrojo, valc);
+}
+
+//Configuración de señal PMW para servomotor
 void initPWM(void) {
   ledcSetup(pwmChannel1, freqPWM, resPWM);
   ledcAttachPin(servo, pwmChannel1);
   ledcWrite(pwmChannel1, 0);
+}
+
+//Analisis de la temperatura para adquirir el vector de digitos para los displays
+void Numero(void) {
+  int valorm = tempC * 10;
+  numero[0] = valorm / 100;        
+  valorm %= 100;
+  numero[1] = valorm / 10;         
+  numero[2] = valorm % 10;    
+}
+
+//Timer para los diplays de 7 sementos
+void initTimerDisplay() {
+  timerDisplay = timerBegin(0, 80, true);  
+  timerAttachInterrupt(timerDisplay, &onTimer, true);
+  timerAlarmWrite(timerDisplay, 2000, true); 
+  timerAlarmEnable(timerDisplay);
 }
